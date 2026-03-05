@@ -1,55 +1,64 @@
 # IUM Syscalls
 
-A minimal import library shim for loading `iumdll.dll` into a process, providing an alternative source of `syscall` instructions outside `ntdll.dll`.
+Proof-of-concept import library shim that loads `iumdll.dll` into a process and sources syscall stubs outside `ntdll.dll`.
 
-This project provides:
+The repository provides:
 
-- A module-definition file (`iumbase.def`) for generating an import library
-- A PowerShell script to generate `iumbase.lib`
-- A small C helper (`IumSyscalls.c` / `IumSyscalls.h`) for forcing inclusion into the Import Address Table (IAT)
-- A Visual Studio example project demonstrating usage with a Hell's Hall implementation
+- `iumbase.def` – module-definition file used to generate an import library  
+- `generate_lib.ps1` – PowerShell script that builds `iumbase.lib`  
+- `IumSyscalls.c / IumSyscalls.h` – minimal helper used to force IAT inclusion  
+- Example Visual Studio project demonstrating usage with Hell's Hall
 
 ## Overview
 
-As part of the [Isolated User Mode (IUM)](https://learn.microsoft.com/en-us/windows/win32/procthread/isolated-user-mode--ium--processes) subsystem, modern Windows includes `iumdll.dll`, a core system library that contains numerous `syscall; ret` gadgets suitable for indirect syscall implementations.
+Modern Windows includes `iumdll.dll` as part of the [Isolated User Mode (IUM)](https://learn.microsoft.com/en-us/windows/win32/procthread/isolated-user-mode--ium--processes) architecture used by "Trustlet" processes. This system library contains numerous `syscall; ret` instruction sequences suitable for indirect syscall invocation.
 
-![iumdll syscall instructions](images/iumdll-syscalls.png)
+![iumdll syscall instructions](assets/iumdll-syscalls.png)
 
-By generating and linking against a custom import library for `iumbase.dll`, the process import table forces `iumbase.dll` to load, which in turn proxy-loads `iumdll.dll`. Once present in the process address space, `iumdll.dll` can be parsed to retrieve valid syscall instructions for dynamic resolution outside `ntdll.dll`.
+By linking against a custom import library, the process import table forces `iumbase.dll` to load, which proxy-loads `iumdll.dll`. Once mapped into the process, it can be parsed to locate usable syscall instructions.
 
-## Repository Structure
+## Repository Layout
 
-The repository is organized as follows:
+```
+.
+├── assets/
+├── include/
+│   └── IumSyscalls.h
+├── src/
+│   ├── IumSyscalls.c
+│   └── iumbase.def
+├── scripts/
+│   └── generate_lib.ps1
+├── examples/
+│   └── IumHellsHall/
+│       └── IumHellsHall.sln
+├── lib/
+├── LICENSE
+├── NOTICE
+└── README.md
+```
 
-- `/include`: Public headers.
-  - `IumSyscalls.h` – Declares the helper function used to force IAT inclusion.
-- `/src`: Core source files.
-  - `IumSyscalls.c` – Minimal helper implementation.
-  - `iumbase.def` – Module-definition file used to generate the import library.
-- `/scripts`: Build utilities.
-  - `generate_lib.ps1` – Generates `iumbase.lib` using MSVC `lib.exe`.
-- `/examples`: Example Visual Studio project.
-  - `/IumHellsHall` – Demonstrates integration with a Hell's Hall–style syscall resolver.
-- `/images`: Documentation assets (screenshots and diagrams).
-- `/lib`: Generated output directory (created dynamically, not tracked by Git).
-- `README.md`: Project documentation.
-- `LICENSE`: License information.
-- `NOTICE`: Third-party attribution.
+Key directories:
 
-The `lib/` directory is created dynamically and is not committed to the repository.
+- `include/` – public headers  
+- `src/` – core implementation  
+- `scripts/` – build utilities  
+- `examples/` – demonstration project  
+
+> **Note:** `iumbase.lib` is generated in the `lib/` directory during the build process and is not committed to the repository.
 
 ## Generating the Import Library
 
-Open **Developer PowerShell for Visual Studio** and run `.\scripts\generate_lib.ps1` :
+Open **Developer PowerShell for Visual Studio** and run: `.\scripts\generate_lib.ps1` 
 
 ```
 PS C:\ium-syscalls> .\scripts\generate_lib.ps1
 
 Created directory: C:\ium-syscalls\lib
 Generating import library...
-Architecture: X64
+Architectur: X64
 Microsoft (R) Library Manager Version 14.44.35217.0
-Copyright (C) Microsoft Corporation.  All rights reserved.
+Copyright (C) Microsoft Corporation. All rights reserved.
 
 Creating library C:\ium-syscalls\lib\iumbase.lib and object C:\ium-syscalls\lib\iumbase.exp
 
@@ -57,28 +66,16 @@ Successfully generated:
 C:\ium-syscalls\lib\iumbase.lib
 ```
 
-This generates `lib\iumbase.lib`. 
-
-
 ## Usage
 
-To integrate into your own Visual Studio project:
+To integrate with a Visual Studio project:
 
-1. Add `include\` to:
-   - C/C++ → Additional Include Directories
-
-2. Add `lib\` to:
-   - Linker → General → Additional Library Directories
-
-3. Add `iumbase.lib` to:
-   - Linker → Input → Additional Dependencies
-
-4. Add the implementation file:
-   - Right-click your project
-   - Add → Existing Item…
-   - Select `src\IumSyscalls.c`
-
-5. Include `IumSyscalls.h` and call `AddIumdllToIAT()` at the beginning of `main`.
+1. Add `include\` to **C/C++ → Additional Include Directories**  
+2. Add `lib\` to **Linker → Additional Library Directories**  
+3. Add `iumbase.lib` to **Linker → Additional Dependencies**  
+4. Add `src\IumSyscalls.c` to the project  
+5. Include `IumSyscalls.h` in your source file 
+6. Call `AddIumdllToIAT()` before resolving syscalls.
 
 ```
 #include "IumSyscalls.h"
@@ -87,22 +84,37 @@ int main(void)
 {
     AddIumdllToIAT();
 
-    // Your syscall resolution logic here
+    // syscall resolution logic
 
     return 0;
 }
 ```
 
-This ensures `iumdll.dll` is loaded before export parsing and syscall resolution.
-
 ## Example
 
-The example solution is located at `examples/IumHellsHall/IumHellsHall.sln`.
+An example implementation is provided in: `examples/IumHellsHall/IumHellsHall.sln`
 
-**Build instructions:**
-1. Generate the import library  
+**Build steps:**
+
+1. Generate `iumbase.lib`  
 2. Open the solution  
 3. Build (x64 configuration)
+
+The project demonstrates resolving syscall stubs from `iumdll.dll` and executing a simple payload (Metasploit x64 calc).
+
+```
+PS C:\ium-syscalls> & ".\examples\IumHellsHall\x64\Release\IumHellsHall.exe"
+
+[+] IUMDLL syscall : 0x00007FFDA6201198
+[+] IUMDLL syscall : 0x00007FFDA6201168
+[+] IUMDLL syscall : 0x00007FFDA6201158
+[+] IUMDLL syscall : 0x00007FFDA6201148
+[+] IUMDLL syscall : 0x00007FFDA6201178
+[+] pTmpBuffer     : 0x00000288AE600000
+
+[*] Press any key to decrypt...
+```
+
 
 ## Acknowledgements
 

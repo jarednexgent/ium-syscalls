@@ -147,6 +147,7 @@ BOOL FetchIumdllSyscallInst(OUT PVOID* ppSyscallInstAddress) {
         }
 
         if (*ppSyscallInstAddress) {
+            printf("[+] IUMDLL syscall : 0x%p \n", *ppSyscallInstAddress);
             return TRUE;
         }
     }

