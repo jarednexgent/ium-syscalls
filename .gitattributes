@@ -1,0 +1,7 @@
+# Exclude scripts from language statistics
+scripts/* linguist-vendored
+*.ps1 linguist-vendored
+
+# Ensure C is recognized as the primary language
+*.c linguist-detectable
+*.h linguist-detectable
